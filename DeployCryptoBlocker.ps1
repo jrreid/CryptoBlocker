@@ -7,31 +7,51 @@
 # Names to use in FSRM
 $fileGroupName = "CryptoBlockerGroup"
 $fileTemplateName = "CryptoBlockerTemplate"
-# set screening type to
-# Active screening: Do not allow users to save unathorized files
-$fileTemplateType = "Active"
-# Passive screening: Allow users to save unathorized files (use for monitoring)
-#$fileTemplateType = "Passiv"
+
+# Skip List
+# If running as a scheduled task give a full path
+$SkipList = ".\SkipList.txt"
+
+# Logging
+# Uncomment to enable full logging. Useful for scheduled tasks
+#$LoggingPath = ".\Logs\$($env:computername)-$(Get-Date -Format yyyy-MM-dd).txt" 
+#Start-Transcript -Path $LoggingPath -Append
+
+# Proxy
+# Uncomment and fill in if your site uses a proxy
+#$global:PSDefaultParameterValues = @{
+#    'Invoke-RestMethod:Proxy'='http://proxyhost:port'
+#    'Invoke-WebRequest:Proxy'='http://proxyhost:port'
+#    '*:ProxyUseDefaultCredentials'=$true
+#}
+
+
+# Screening type
+# Active screening: Do not allow users to save unauthorized files
+$fileTemplateActive = $true
+# Passive screening: Allow users to save unauthorized files (use for monitoring)
+#$fileTemplateActive = $false
 
 # Write the email options to the temporary file - comment out the entire block if no email notification should be set
-$EmailNotification = $env:TEMP + "\tmpEmail001.tmp"
-"Notification=m" >> $EmailNotification
-"To=[Admin Email]" >> $EmailNotification
-## en
-"Subject=Unauthorized file from the [Violated File Group] file group detected" >> $EmailNotification
-"Message=User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file is in the [Violated File Group] file group, which is not permitted on the server."  >> $EmailNotification
-## de
-#"Subject=Nicht autorisierte Datei erkannt, die mit Dateigruppe [Violated File Group] übereinstimmt" >> $EmailNotification
-#"Message=Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist."  >> $EmailNotification
+$MailTo = "[Admin Email];[Source File Owner Email];[Source Io Owner Email]"
 
-# Write the event log options to the temporary file - comment out the entire block if no event notification should be set
-$EventNotification = $env:TEMP + "\tmpEvent001.tmp"
-"Notification=e" >> $EventNotification
-"EventType=Warning" >> $EventNotification
 ## en
-"Message=User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file is in the [Violated File Group] file group, which is not permitted on the server." >> $EventNotification
+#$Subject = "Unauthorized file from the [Violated File Group] file group detected"
+$Subject = "POSSIBLE VIRUS INFECTION DETECTED - [Violated File Group] detected"
+$Message = "User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file indicates that the file server is in the process of being encrypted by a virus. If you are [Source Io Owner] please shut down any computers you are using IMMEDIATELY and notify IT at 9662 9355" 
+
 ## de
-#"Message=Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist." >> $EventNotification
+#$Subject = "Nicht autorisierte Datei erkannt, die mit Dateigruppe [Violated File Group] übereinstimmt"
+#$Message = "Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist." 
+
+$Notifications = @()
+# Comment out if no email notification should be set
+$Notifications +=  New-FsrmAction -Type Email -Body $Message -MailTo $MailTo -Subject $Subject
+
+# Comment out if no event notification should be set
+$Notifications +=  New-FsrmAction -Type Event -Body $Message  -EventType Warning
+
+
 
 ################################ USER CONFIGURATION ################################
 
@@ -127,21 +147,21 @@ $drivesContainingShares = 	@(Get-WmiObject Win32_Share |
 
 if ($drivesContainingShares.Count -eq 0)
 {
-    Write-Host "`n####"
-    Write-Host "No drives containing shares were found. Exiting.."
+    Write-Output "`n####"
+    Write-Output "No drives containing shares were found. Exiting.."
     exit
 }
 
-Write-Host "`n####"
-Write-Host "The following shares needing to be protected: $($drivesContainingShares -Join ",")"
+Write-Output "`n####"
+Write-Output "The following shares needing to be protected: $($drivesContainingShares -Join ",")"
 
 
 # Identify Windows Server version, and install FSRM role
 $majorVer = [System.Environment]::OSVersion.Version.Major
 $minorVer = [System.Environment]::OSVersion.Version.Minor
 
-Write-Host "`n####"
-Write-Host "Checking File Server Resource Manager.."
+Write-Output "`n####"
+Write-Output "Checking File Server Resource Manager.."
 
 Import-Module ServerManager
 
@@ -152,25 +172,25 @@ if ($majorVer -ge 6)
     if ($minorVer -ge 2 -and $checkFSRM.Installed -ne "True")
     {
         # Server 2012
-        Write-Host "`n####"
-        Write-Host "FSRM not found.. Installing (2012).."
+        Write-Output "`n####"
+        Write-Output "FSRM not found.. Installing (2012).."
 
         $install = Install-WindowsFeature -Name FS-Resource-Manager -IncludeManagementTools
 	if ($? -ne $True)
 	{
-		Write-Host "Install of FSRM failed."
+		Write-Output "Install of FSRM failed."
 		exit
 	}
     }
     elseif ($minorVer -ge 1 -and $checkFSRM.Installed -ne "True")
     {
         # Server 2008 R2
-        Write-Host "`n####"
-		Write-Host "FSRM not found.. Installing (2008 R2).."
+        Write-Output "`n####"
+		Write-Output "FSRM not found.. Installing (2008 R2).."
         $install = Add-WindowsFeature FS-FileServer, FS-Resource-Manager
 	if ($? -ne $True)
 	{
-		Write-Host "Install of FSRM failed."
+		Write-Output "Install of FSRM failed."
 		exit
 	}
 	
@@ -178,12 +198,12 @@ if ($majorVer -ge 6)
     elseif ($checkFSRM.Installed -ne "True")
     {
         # Server 2008
-        Write-Host "`n####"
-		Write-Host "FSRM not found.. Installing (2008).."
+        Write-Output "`n####"
+		Write-Output "FSRM not found.. Installing (2008).."
         $install = &servermanagercmd -Install FS-FileServer FS-Resource-Manager
 	if ($? -ne $True)
 	{
-		Write-Host "Install of FSRM failed."
+		Write-Output "Install of FSRM failed."
 		exit
 	}
     }
@@ -191,24 +211,24 @@ if ($majorVer -ge 6)
 else
 {
     # Assume Server 2003
-    Write-Host "`n####"
-	Write-Host "Unsupported version of Windows detected! Quitting.."
+    Write-Output "`n####"
+	Write-Output "Unsupported version of Windows detected! Quitting.."
     return
 }
 
 # Download list of CryptoLocker file extensions
-Write-Host "`n####"
-Write-Host "Dowloading CryptoLocker file extensions list from fsrm.experiant.ca api.."
-$webClient = New-Object System.Net.WebClient
-$jsonStr = $webClient.DownloadString("https://fsrm.experiant.ca/api/v1/get")
+Write-Output "`n####"
+Write-Output "Dowloading CryptoLocker file extensions list from fsrm.experiant.ca api.."
+$Site="https://fsrm.experiant.ca/api/v1/get"
+$jsonStr = Invoke-WebRequest -Uri $Site -UseBasicParsing
 $monitoredExtensions = @(ConvertFrom-Json20 $jsonStr | ForEach-Object { $_.filters })
 
 # Process SkipList.txt
-Write-Host "`n####"
-Write-Host "Processing SkipList.."
-If (Test-Path .\SkipList.txt)
+Write-Output "`n####"
+Write-Output "Processing SkipList.."
+If (Test-Path $SkipList )
 {
-    $Exclusions = Get-Content .\SkipList.txt | ForEach-Object { $_.Trim() }
+    $Exclusions = Get-Content $SkipList  | ForEach-Object { $_.Trim() }
     $monitoredExtensions = $monitoredExtensions | Where-Object { $Exclusions -notcontains $_ }
 
 }
@@ -228,60 +248,39 @@ Else
 # entries before applying the list to your FSRM implementation.
 #
 '@
-    Set-Content -Path .\SkipList.txt -Value $emptyFile
+    Set-Content -Path $SkipList -Value $emptyFile
 }
 
 # Split the $monitoredExtensions array into fileGroups of less than 4kb to allow processing by filescrn.exe
 $fileGroups = @(New-CBArraySplit $monitoredExtensions)
 
 # Perform these steps for each of the 4KB limit split fileGroups
-Write-Host "`n####"
-Write-Host "Adding/replacing File Groups.."
+Write-Output "`n####"
+Write-Output "Adding/replacing File Groups.."
 ForEach ($group in $fileGroups) {
-    #Write-Host "Adding/replacing File Group [$($group.fileGroupName)] with monitored file [$($group.array -Join ",")].."
-    Write-Host "`nFile Group [$($group.fileGroupName)] with monitored files from [$($group.array[0])] to [$($group.array[$group.array.GetUpperBound(0)])].."
-	&filescrn.exe filegroup Delete "/Filegroup:$($group.fileGroupName)" /Quiet
-    &filescrn.exe Filegroup Add "/Filegroup:$($group.fileGroupName)" "/Members:$($group.array -Join '|')"
+    #Write-Output "Adding/replacing File Group [$($group.fileGroupName)] with monitored file [$($group.array -Join ",")].."
+    Write-Output "`nFile Group [$($group.fileGroupName)] with monitored files from [$($group.array[0])] to [$($group.array[$group.array.GetUpperBound(0)])].."
+    Remove-FsrmFileGroup -Name $($group.fileGroupName) -Confirm:$false
+    New-FsrmFileGroup -Name $($group.fileGroupName) -IncludePattern $($group.array)
 }
 
 # Create File Screen Template with Notification
-Write-Host "`n####"
-Write-Host "Adding/replacing [$fileTemplateType] File Screen Template [$fileTemplateName] with eMail Notification [$EmailNotification] and Event Notification [$EventNotification].."
-&filescrn.exe Template Delete /Template:$fileTemplateName /Quiet
-# Build the argument list with all required fileGroups and notifications
-$screenArgs = 'Template', 'Add', "/Template:$fileTemplateName", "/Type:$fileTemplateType"
-ForEach ($group in $fileGroups) {
-    $screenArgs += "/Add-Filegroup:$($group.fileGroupName)"
-}
-If ($EmailNotification -ne "") {
-    $screenArgs += "/Add-Notification:m,$EmailNotification"
-}
-If ($EventNotification -ne "") {
-    $screenArgs += "/Add-Notification:e,$EventNotification"
-}
-&filescrn.exe $screenArgs
+Write-Output "`n####"
+Write-Output "Adding/replacing [Active:$fileTemplateActive] File Screen Template [$fileTemplateName] with eMail Notification [$EmailNotification] and Event Notification [$EventNotification].."
+Remove-FsrmFileScreenTemplate -Name $fileTemplateName  -Confirm:$false
+New-FsrmFileScreenTemplate -Name $fileTemplateName -Active:$fileTemplateActive -IncludeGroup $fileGroups.fileGroupName -Notification $Notifications
 
 # Create File Screens for every drive containing shares
-Write-Host "`n####"
-Write-Host "Adding/replacing File Screens.."
+Write-Output "`n####"
+Write-Output "Adding/replacing File Screens.."
 $drivesContainingShares | ForEach-Object {
-    Write-Host "File Screen for [$_] with Source Template [$fileTemplateName].."
-    &filescrn.exe Screen Delete "/Path:$_" /Quiet
-    &filescrn.exe Screen Add "/Path:$_" "/SourceTemplate:$fileTemplateName"
+    Write-Output "File Screen for [$_] with Source Template [$fileTemplateName].."
+    Remove-FsrmFileScreen -Path $_ -Confirm:$false
+    New-FsrmFileScreen -Path $_ -Template $fileTemplateName
 }
 
-# Cleanup temporary files if they were created
-Write-Host "`n####"
-Write-Host "Cleaning up temporary stuff.."
-If ($EmailNotification -ne "") {
-	Remove-Item $EmailNotification -Force
-}
-If ($EventNotification -ne "") {
-	Remove-Item $EventNotification -Force
-}
-
-Write-Host "`n####"
-Write-Host "Done."
-Write-Host "####"
+Write-Output "`n####"
+Write-Output "Done."
+Write-Output "####"
 
 ################################ Program code ################################
