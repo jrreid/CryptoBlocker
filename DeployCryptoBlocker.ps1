@@ -260,23 +260,28 @@ Write-Output "Adding/replacing File Groups.."
 ForEach ($group in $fileGroups) {
     #Write-Output "Adding/replacing File Group [$($group.fileGroupName)] with monitored file [$($group.array -Join ",")].."
     Write-Output "`nFile Group [$($group.fileGroupName)] with monitored files from [$($group.array[0])] to [$($group.array[$group.array.GetUpperBound(0)])].."
-    Remove-FsrmFileGroup -Name $($group.fileGroupName) -Confirm:$false
-    New-FsrmFileGroup -Name $($group.fileGroupName) -IncludePattern $($group.array)
+    Remove-FsrmFileGroup -Name $($group.fileGroupName) -Confirm:$false | Write-Verbose
+    New-FsrmFileGroup -Name $($group.fileGroupName) -IncludePattern $($group.array) | Write-Verbose
 }
 
 # Create File Screen Template with Notification
 Write-Output "`n####"
-Write-Output "Adding/replacing [Active:$fileTemplateActive] File Screen Template [$fileTemplateName] with eMail Notification [$EmailNotification] and Event Notification [$EventNotification].."
-Remove-FsrmFileScreenTemplate -Name $fileTemplateName  -Confirm:$false
-New-FsrmFileScreenTemplate -Name $fileTemplateName -Active:$fileTemplateActive -IncludeGroup $fileGroups.fileGroupName -Notification $Notifications
+Write-Output "Adding/replacing [Active:$fileTemplateActive] File Screen Template [$fileTemplateName] with eMail Notification and Event Notification.."
+Remove-FsrmFileScreenTemplate -Name $fileTemplateName  -Confirm:$false | Write-Verbose
+New-FsrmFileScreenTemplate -Name $fileTemplateName -Active:$fileTemplateActive -IncludeGroup $fileGroups.fileGroupName -Notification $Notifications | Write-Verbose
 
 # Create File Screens for every drive containing shares
+# Test for share existence as on File Clusters may be on another node
 Write-Output "`n####"
 Write-Output "Adding/replacing File Screens.."
 $drivesContainingShares | ForEach-Object {
-    Write-Output "File Screen for [$_] with Source Template [$fileTemplateName].."
-    Remove-FsrmFileScreen -Path $_ -Confirm:$false
-    New-FsrmFileScreen -Path $_ -Template $fileTemplateName
+	If (Test-Path $_ ){
+		Write-Output "File Screen for [$_] with Source Template [$fileTemplateName].."
+		Remove-FsrmFileScreen -Path $_ -Confirm:$false | Write-Verbose
+		New-FsrmFileScreen -Path $_ -Template $fileTemplateName | Write-Verbose
+	} Else {
+		Write-Output "File Screen for [$_] could not be created as the path is invalid"
+	}
 }
 
 Write-Output "`n####"
