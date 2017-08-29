@@ -1,36 +1,131 @@
-# DeployCryptoBlocker.ps1
-# Version: 1.1
-#####
+<#
+.Synopsis
+Create and update CryptoLocker detection groups and Templates in FSRM
+
+.Description
+Script to create and update CryptoLocker detection groups and Templates in FSRM. 
+It downloads a list of known CryptoLocker extensions from a public repositoty and creates file Groups, Templates and Screens in FSRM 
+
+.Parameter GroupName
+Specify FSRM File Group Name
+
+.Parameter TemplateName
+Specify FSRM File Template Name
+
+.Parameter SkipListPath
+Text file containing a list of exclude match strings
+
+.Parameter ActiveTemplate
+Boolean: True: Create Active screens that do not allow users to save unauthorized files. False: Passive screening: Allow users to save unauthorized files (use for monitoring)
+
+.Parameter DisableEmail
+Do not send an alert email when detection occurs
+
+.Parameter DisableEvent
+Do not create an alert event when detection occurs
+
+.Parameter EnableLogging
+Enable Transcript logging of session
+
+.Parameter LogFilePath
+Where to write log file
+
+
+.Notes
+Last Updated: 2017-08-29
+Version     : 1.2
+
+.Example
+PS C:\> DeployCryptoBlocker.ps1 
+
+Create File Groups, Screen and Templates. Templates will be passive and an email and event notification will be sent if a match occurs.
+
+
+.Example
+PS C:\> DeployCryptoBlocker.ps1 -NoEmail
+
+Create File Groups, Screen and Templates. Templates will be passive and an event notification will be generated if a match occurs.
+
+.Example
+PS C:\> DeployCryptoBlocker.ps1 -Active -NoEvent
+
+Create File Groups, Screen and Templates. Templates will be active and will block file writes that match. An email will be sent if a match occurs.
+
+.Example
+PS C:\> DeployCryptoBlocker.ps1 -Active -ProxyHost MyProxy.server.com -ProxyPort 3128 
+
+Create File Groups, Screen and Templates. Templates will be active and will block file writes that match. An email and event will be sent if a match occurs. 
+Block list download will use the proxy server specified.
+
+
+#>
+ 
+
+[CmdletBinding()]
+Param(
+    [string] $GroupName = "CryptoBlockerGroup",
+	
+    [string] $TemplateName = "CryptoBlockerTemplate",
+	
+	[Parameter(Mandatory=$False,Position=1)]
+	[alias('Skip')]
+    [string] $SkipListPath = ".\SkipList.txt",
+	
+	[alias('Active')]
+    [switch] $ActiveTemplate,
+	
+	[alias('NoEmail')]
+    [switch] $DisableEmail,
+	
+	[alias('NoEvent')]
+    [switch] $DisableEvent,
+
+	
+
+    [switch] $EnableLogging = $false,
+	
+    [string] $LogFilePath = ".\Logs\$($env:computername)-$(Get-Date -Format yyyy-MM-dd).txt",
+	
+	
+	[string] $ProxyHost = $false,
+	
+	[ValidateRange(1,65535)] 
+	[int] $ProxyPort = 8080
+	
+)
+
 
 ################################ USER CONFIGURATION ################################
 
 # Names to use in FSRM
-$fileGroupName = "CryptoBlockerGroup"
-$fileTemplateName = "CryptoBlockerTemplate"
+$FileGroupName = $GroupName 
+$FileTemplateName = $TemplateName
 
 # Skip List
 # If running as a scheduled task give a full path
-$SkipList = ".\SkipList.txt"
+$SkipList = $SkipListPath
 
 # Logging
-# Uncomment to enable full logging. Useful for scheduled tasks
-#$LoggingPath = ".\Logs\$($env:computername)-$(Get-Date -Format yyyy-MM-dd).txt" 
-#Start-Transcript -Path $LoggingPath -Append
+# Useful for scheduled tasks
+if ($EnableLogging) {
+	Start-Transcript -Path $$LogFilePath -Append
+}
 
 # Proxy
 # Uncomment and fill in if your site uses a proxy
-#$global:PSDefaultParameterValues = @{
-#    'Invoke-RestMethod:Proxy'='http://proxyhost:port'
-#    'Invoke-WebRequest:Proxy'='http://proxyhost:port'
-#    '*:ProxyUseDefaultCredentials'=$true
-#}
-
+if ($ProxyHost){
+	$global:PSDefaultParameterValues = @{
+		'Invoke-RestMethod:Proxy' = "http://$($ProxyHost):$($ProxyPort)"
+		'Invoke-WebRequest:Proxy' = "http://$($ProxyHost):$($ProxyPort)"
+		'*:ProxyUseDefaultCredentials' = $true
+	}
+}
 
 # Screening type
 # Active screening: Do not allow users to save unauthorized files
-$fileTemplateActive = $true
 # Passive screening: Allow users to save unauthorized files (use for monitoring)
-#$fileTemplateActive = $false
+$fileTemplateActive = $ActiveTemplate
+
 
 # Write the email options to the temporary file - comment out the entire block if no email notification should be set
 $MailTo = "[Admin Email];[Source File Owner Email];[Source Io Owner Email]"
@@ -38,19 +133,22 @@ $MailTo = "[Admin Email];[Source File Owner Email];[Source Io Owner Email]"
 ## en
 #$Subject = "Unauthorized file from the [Violated File Group] file group detected"
 $Subject = "POSSIBLE VIRUS INFECTION DETECTED - [Violated File Group] detected"
-$Message = "User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file indicates that the file server is in the process of being encrypted by a virus. If you are [Source Io Owner] please shut down any computers you are using IMMEDIATELY and notify IT at 9662 9355" 
+$Message = "User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file indicates that the file server is in the process of being encrypted by a virus. If you are [Source Io Owner] please shut down any computers you are using IMMEDIATELY and notify IT at <Phone>" 
 
 ## de
 #$Subject = "Nicht autorisierte Datei erkannt, die mit Dateigruppe [Violated File Group] übereinstimmt"
 #$Message = "Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist." 
 
 $Notifications = @()
-# Comment out if no email notification should be set
-$Notifications +=  New-FsrmAction -Type Email -Body $Message -MailTo $MailTo -Subject $Subject
+# Should email notification be sent
+if (! $DisableEmail) {
+	$Notifications +=  New-FsrmAction -Type Email -Body $Message -MailTo $MailTo -Subject $Subject
+}
 
-# Comment out if no event notification should be set
-$Notifications +=  New-FsrmAction -Type Event -Body $Message  -EventType Warning
-
+# Should event notification be created
+if (! $DisableEvent) {
+	$Notifications +=  New-FsrmAction -Type Event -Body $Message  -EventType Warning
+}
 
 
 ################################ USER CONFIGURATION ################################
@@ -258,17 +356,16 @@ $fileGroups = @(New-CBArraySplit $monitoredExtensions)
 Write-Output "`n####"
 Write-Output "Adding/replacing File Groups.."
 ForEach ($group in $fileGroups) {
-    #Write-Output "Adding/replacing File Group [$($group.fileGroupName)] with monitored file [$($group.array -Join ",")].."
-    Write-Output "`nFile Group [$($group.fileGroupName)] with monitored files from [$($group.array[0])] to [$($group.array[$group.array.GetUpperBound(0)])].."
-    Remove-FsrmFileGroup -Name $($group.fileGroupName) -Confirm:$false | Write-Verbose
-    New-FsrmFileGroup -Name $($group.fileGroupName) -IncludePattern $($group.array) | Write-Verbose
+	Write-Output "`nFile Group [$($group.FileGroupName)] with monitored files from [$($group.array[0])] to [$($group.array[$group.array.GetUpperBound(0)])].."
+	Remove-FsrmFileGroup -Name $($group.FileGroupName) -Confirm:$false | Write-Verbose
+	New-FsrmFileGroup -Name $($group.FileGroupName) -IncludePattern $($group.array) | Write-Verbose
 }
 
 # Create File Screen Template with Notification
 Write-Output "`n####"
-Write-Output "Adding/replacing [Active:$fileTemplateActive] File Screen Template [$fileTemplateName] with eMail Notification and Event Notification.."
-Remove-FsrmFileScreenTemplate -Name $fileTemplateName  -Confirm:$false | Write-Verbose
-New-FsrmFileScreenTemplate -Name $fileTemplateName -Active:$fileTemplateActive -IncludeGroup $fileGroups.fileGroupName -Notification $Notifications | Write-Verbose
+Write-Output "Adding/replacing [Active:$fileTemplateActive] File Screen Template [$FileTemplateName] with eMail Notification and Event Notification.."
+Remove-FsrmFileScreenTemplate -Name $FileTemplateName  -Confirm:$false | Write-Verbose
+New-FsrmFileScreenTemplate -Name $FileTemplateName -Active:$fileTemplateActive -IncludeGroup $fileGroups.FileGroupName -Notification $Notifications | Write-Verbose
 
 # Create File Screens for every drive containing shares
 # Test for share existence as on File Clusters may be on another node
@@ -276,9 +373,9 @@ Write-Output "`n####"
 Write-Output "Adding/replacing File Screens.."
 $drivesContainingShares | ForEach-Object {
 	If (Test-Path $_ ){
-		Write-Output "File Screen for [$_] with Source Template [$fileTemplateName].."
+		Write-Output "File Screen for [$_] with Source Template [$FileTemplateName].."
 		Remove-FsrmFileScreen -Path $_ -Confirm:$false | Write-Verbose
-		New-FsrmFileScreen -Path $_ -Template $fileTemplateName | Write-Verbose
+		New-FsrmFileScreen -Path $_ -Template $FileTemplateName | Write-Verbose
 	} Else {
 		Write-Output "File Screen for [$_] could not be created as the path is invalid"
 	}
