@@ -108,7 +108,7 @@ $SkipList = $SkipListPath
 # Logging
 # Useful for scheduled tasks
 if ($EnableLogging) {
-	Start-Transcript -Path $$LogFilePath -Append
+	Start-Transcript -Path $LogFilePath -Append
 }
 
 # Proxy
