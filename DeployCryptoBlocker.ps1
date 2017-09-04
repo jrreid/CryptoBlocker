@@ -24,6 +24,20 @@ Do not send an alert email when detection occurs
 .Parameter DisableEvent
 Do not create an alert event when detection occurs
 
+
+.Parameter EmailTo
+Who the message should be sent to. 
+Defaults to [Admin Email];[Source File Owner Email];[Source Io Owner Email] 
+	
+.Parameter EmailSubject
+What the Email subject line should be.
+
+.Parameter EmailMessage
+The email message body. You can use multiple variables as defined by FSRM.
+	
+.Parameter EventMessage
+When generating an Event what description should be set. 
+
 .Parameter EnableLogging
 Enable Transcript logging of session
 
@@ -80,14 +94,21 @@ Param(
 	[alias('NoEvent')]
     [switch] $DisableEvent,
 
+
+	[string] $EmailTo,
 	
+	[string] $EmailSubject,
+	
+	[string] $EmailMessage,
+	
+	[string] $EventMessage,
 
     [switch] $EnableLogging = $false,
 	
     [string] $LogFilePath = ".\Logs\$($env:computername)-$(Get-Date -Format yyyy-MM-dd).txt",
 	
 	
-	[string] $ProxyHost = $false,
+	[string] $ProxyHost,
 	
 	[ValidateRange(1,65535)] 
 	[int] $ProxyPort = 8080
@@ -122,32 +143,49 @@ if ($ProxyHost){
 }
 
 # Screening type
-# Active screening: Do not allow users to save unauthorized files
-# Passive screening: Allow users to save unauthorized files (use for monitoring)
+# Active screening ($true): Do not allow users to save unauthorized files
+# Passive screening ($false): Allow users to save unauthorized files (use for monitoring)
 $fileTemplateActive = $ActiveTemplate
 
 
-# Write the email options to the temporary file - comment out the entire block if no email notification should be set
+# Default Notification Message Values
 $MailTo = "[Admin Email];[Source File Owner Email];[Source Io Owner Email]"
 
 ## en
-#$Subject = "Unauthorized file from the [Violated File Group] file group detected"
-$Subject = "POSSIBLE VIRUS INFECTION DETECTED - [Violated File Group] detected"
+$Subject = "Unauthorized file from the [Violated File Group] file group detected"
 $Message = "User [Source Io Owner] attempted to save [Source File Path] to [File Screen Path] on the [Server] server. This file indicates that the file server is in the process of being encrypted by a virus. If you are [Source Io Owner] please shut down any computers you are using IMMEDIATELY and notify IT at <Phone>" 
 
 ## de
 #$Subject = "Nicht autorisierte Datei erkannt, die mit Dateigruppe [Violated File Group] übereinstimmt"
-#$Message = "Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist." 
+#$Message = "Das System hat erkannt, dass Benutzer [Source Io Owner] versucht hat, die Datei [Source File Path] unter [File Screen Path] auf Server [Server] zu speichern. Diese Datei weist Übereinstimmungen mit der Dateigruppe [Violated File Group] auf, die auf dem System nicht zulässig ist."
 
+# Overide values if given as parameters.
+$MessageEmail = $MessageEvent = $Message 
+if ($EmailTo){
+	$MailTo = $EmailTo
+}
+
+if ($EmailSubject){
+	$Subject = $EmailSubject
+}
+
+if ($EmailMessage){
+	$MessageEmail = $EmailMessage
+}
+
+if ($EventMessage){
+	$MessageEvent = $EventMessage
+}
+ 
 $Notifications = @()
 # Should email notification be sent
 if (! $DisableEmail) {
-	$Notifications +=  New-FsrmAction -Type Email -Body $Message -MailTo $MailTo -Subject $Subject
+	$Notifications +=  New-FsrmAction -Type Email -Body $MessageEmail -MailTo $MailTo -Subject $Subject
 }
 
 # Should event notification be created
 if (! $DisableEvent) {
-	$Notifications +=  New-FsrmAction -Type Event -Body $Message  -EventType Warning
+	$Notifications +=  New-FsrmAction -Type Event -Body $MessageEvent  -EventType Warning
 }
 
 
